@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Application Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .stat-card h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+        
+        .stat-number {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+        
+        .chart-card canvas {
+            max-height: 200px !important;
+        }
+        
+        .applications-table {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+        
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .table th,
+        .table td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9rem;
+        }
+        
+        .table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-transform: capitalize;
+        }
+        
+        .status-interview {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .status-rejected {
+            background: #ffebee;
+            color: #d32f2f;
+        }
+        
+        .status-applied {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .platform-badge {
+            padding: 2px 8px;
+            background: #667eea;
+            color: white;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            text-transform: capitalize;
+        }
+        
+        .search-filter {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .search-input,
+        .filter-select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .search-input {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .refresh-btn:hover {
+            background: #5a6fd8;
+        }
+        
+        @media (max-width: 768px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .search-filter {
+                flex-direction: column;
+            }
+            
+            .search-input {
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Job Application Tracker</h1>
+            <p>AI-powered email monitoring and application tracking</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Applications</h3>
+                <div class="stat-number" id="total-apps">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Interviews</h3>
+                <div class="stat-number" id="total-interviews">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Rejections</h3>
+                <div class="stat-number" id="total-rejections">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Applied</h3>
+                <div class="stat-number" id="total-applied">-</div>
+            </div>
+        </div>
+        
+        <div class="charts-container">
+            <div class="chart-card">
+                <h3>Applications by Status</h3>
+                <canvas id="statusChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Applications by Platform</h3>
+                <canvas id="platformChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="applications-table">
+            <div class="search-filter">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search companies or job titles...">
+                <select id="statusFilter" class="filter-select">
+                    <option value="">All Statuses</option>
+                    <option value="applied">Applied</option>
+                    <option value="interview">Interview</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+                <select id="platformFilter" class="filter-select">
+                    <option value="">All Platforms</option>
+                </select>
+                <select id="dateFilter" class="filter-select" onchange="changeDateFilter()">
+                    <option value="">All Time</option>
+                    <option value="7">Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                    <option value="180">Last 6 months</option>
+                </select>
+                <button onclick="loadData()" class="refresh-btn">🔄 Refresh</button>
+                <select id="pageSize" class="filter-select" onchange="changePageSize()">
+                    <option value="10">Show 10</option>
+                    <option value="25">Show 25</option>
+                    <option value="50">Show All</option>
+                </select>
+            </div>
+            
+            <div id="paginationInfo" style="margin-bottom: 10px; font-size: 0.9rem; color: #666;"></div>
+            
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Company</th>
+                        <th>Position</th>
+                        <th>Platform</th>
+                        <th>Status</th>
+                        <th>Date Applied</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="applicationsTable">
+                    <!-- Applications will be loaded here -->
+                </tbody>
+            </table>
+            
+            <div id="pagination" style="margin-top: 15px; text-align: center;">
+                <button onclick="previousPage()" id="prevBtn" disabled>← Previous</button>
+                <span id="pageInfo" style="margin: 0 15px;"></span>
+                <button onclick="nextPage()" id="nextBtn" disabled>Next →</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let applications = [];
+        let filteredApplications = [];
+        let statusChart, platformChart;
+        let currentPage = 1;
+        let pageSize = 10;
+        let selectedDateFilter = '';
+        
+        // Load data when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadData();
+            setupEventListeners();
+        });
+        
+        function setupEventListeners() {
+            document.getElementById('searchInput').addEventListener('input', filterApplications);
+            document.getElementById('statusFilter').addEventListener('change', filterApplications);
+            document.getElementById('platformFilter').addEventListener('change', filterApplications);
+        }
+        
+        async function loadData() {
+            try {
+                // Build URL with date filter
+                let url = '/api/applications';
+                if (selectedDateFilter) {
+                    url += `?days=${selectedDateFilter}`;
+                }
+                
+                // Load applications
+                const appsResponse = await fetch(url);
+                applications = await appsResponse.json();
+                
+                // Load stats with same filter
+                let statsUrl = '/api/stats';
+                if (selectedDateFilter) {
+                    statsUrl += `?days=${selectedDateFilter}`;
+                }
+                const statsResponse = await fetch(statsUrl);
+                const stats = await statsResponse.json();
+                
+                updateStats(stats);
+                updateCharts(stats);
+                updatePlatformFilter(stats.platform_counts);
+                filteredApplications = applications;
+                displayApplications();
+                
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+        }
+        
+        function updateStats(stats) {
+            document.getElementById('total-apps').textContent = stats.total_applications;
+            document.getElementById('total-interviews').textContent = stats.status_counts.interview || 0;
+            document.getElementById('total-rejections').textContent = stats.status_counts.rejected || 0;
+            document.getElementById('total-applied').textContent = stats.status_counts.applied || 0;
+        }
+        
+        function updatePlatformFilter(platformCounts) {
+            const platformFilter = document.getElementById('platformFilter');
+            const currentValue = platformFilter.value;
+            
+            // Clear existing options except "All Platforms"
+            platformFilter.innerHTML = '<option value="">All Platforms</option>';
+            
+            // Add platform options
+            Object.keys(platformCounts).forEach(platform => {
+                const option = document.createElement('option');
+                option.value = platform;
+                option.textContent = `${platform} (${platformCounts[platform]})`;
+                platformFilter.appendChild(option);
+            });
+            
+            // Restore previous selection
+            platformFilter.value = currentValue;
+        }
+        
+        function updateCharts(stats) {
+            // Status Chart
+            const statusCtx = document.getElementById('statusChart').getContext('2d');
+            if (statusChart) statusChart.destroy();
+            
+            statusChart = new Chart(statusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(stats.status_counts),
+                    datasets: [{
+                        data: Object.values(stats.status_counts),
+                        backgroundColor: [
+                            '#FF6384',
+                            '#36A2EB',
+                            '#FFCE56',
+                            '#4BC0C0'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                boxWidth: 12,
+                                padding: 10
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Platform Chart
+            const platformCtx = document.getElementById('platformChart').getContext('2d');
+            if (platformChart) platformChart.destroy();
+            
+            platformChart = new Chart(platformCtx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(stats.platform_counts),
+                    datasets: [{
+                        label: 'Applications',
+                        data: Object.values(stats.platform_counts),
+                        backgroundColor: '#667eea'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        function displayApplications() {
+            const tbody = document.getElementById('applicationsTable');
+            tbody.innerHTML = '';
+            
+            // Calculate pagination
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = startIndex + pageSize;
+            const pageApps = filteredApplications.slice(startIndex, endIndex);
+            
+            // Update pagination info
+            const totalPages = Math.ceil(filteredApplications.length / pageSize);
+            document.getElementById('paginationInfo').textContent = 
+                `Showing ${startIndex + 1}-${Math.min(endIndex, filteredApplications.length)} of ${filteredApplications.length} applications`;
+            
+            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+            
+            // Update pagination buttons
+            document.getElementById('prevBtn').disabled = currentPage === 1;
+            document.getElementById('nextBtn').disabled = currentPage === totalPages || totalPages === 0;
+            
+            pageApps.forEach(app => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${app.company_name}</td>
+                    <td>${app.job_title}</td>
+                    <td><span class="platform-badge">${app.platform}</span></td>
+                    <td><span class="status-badge status-${app.status}">${app.status}</span></td>
+                    <td>${app.date_applied}</td>
+                    <td>
+                        <select onchange="updateStatus(${app.id}, this.value)" class="filter-select">
+                            <option value="applied" ${app.status === 'applied' ? 'selected' : ''}>Applied</option>
+                            <option value="interview" ${app.status === 'interview' ? 'selected' : ''}>Interview</option>
+                            <option value="rejected" ${app.status === 'rejected' ? 'selected' : ''}>Rejected</option>
+                        </select>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        
+        function filterApplications() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const statusFilter = document.getElementById('statusFilter').value;
+            const platformFilter = document.getElementById('platformFilter').value;
+            
+            filteredApplications = applications.filter(app => {
+                const matchesSearch = app.company_name.toLowerCase().includes(searchTerm) || 
+                                    app.job_title.toLowerCase().includes(searchTerm);
+                const matchesStatus = !statusFilter || app.status === statusFilter;
+                const matchesPlatform = !platformFilter || app.platform === platformFilter;
+                
+                return matchesSearch && matchesStatus && matchesPlatform;
+            });
+            
+            currentPage = 1; // Reset to first page when filtering
+            displayApplications();
+        }
+        
+        function changePageSize() {
+            pageSize = parseInt(document.getElementById('pageSize').value);
+            currentPage = 1; // Reset to first page
+            displayApplications();
+        }
+        
+        function changeDateFilter() {
+            selectedDateFilter = document.getElementById('dateFilter').value;
+            currentPage = 1; // Reset to first page
+            loadData(); // Reload data with new filter
+        }
+        
+        function previousPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                displayApplications();
+            }
+        }
+        
+        function nextPage() {
+            const totalPages = Math.ceil(filteredApplications.length / pageSize);
+            if (currentPage < totalPages) {
+                currentPage++;
+                displayApplications();
+            }
+        }
+        
+        async function updateStatus(appId, newStatus) {
+            try {
+                const response = await fetch('/api/update_status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        id: appId,
+                        status: newStatus
+                    })
+                });
+                
+                if (response.ok) {
+                    // Update the local data
+                    const app = applications.find(a => a.id === appId);
+                    if (app) {
+                        app.status = newStatus;
+                    }
+                    
+                    // Reload stats and charts
+                    const statsResponse = await fetch('/api/stats');
+                    const stats = await statsResponse.json();
+                    updateStats(stats);
+                    updateCharts(stats);
+                    
+                    console.log('Status updated successfully');
+                } else {
+                    console.error('Failed to update status');
+                }
+            } catch (error) {
+                console.error('Error updating status:', error);
+            }
+        }
+    </script>
+</body>
+</html>

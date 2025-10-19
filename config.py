@@ -20,38 +20,53 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///job_applications.db")
 CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
 MAX_EMAILS_PER_CHECK = int(os.getenv("MAX_EMAILS_PER_CHECK", "50"))
 
-# Job Platform Email Patterns
+# Job Platform Email Patterns# Broad list of common ATS / recruiting platforms
 JOB_PLATFORM_PATTERNS = [
-    "workday",
-    "greenhouse",
-    "lever",
-    "bamboohr",
-    "smartrecruiters",
-    "icims",
-    "jobvite",
-    "successfactors",
-    "taleo",
-    "zenefits",
-    "applicantstack",
-    "recruitee",
-    "personio",
-    "bamboohr",
-    "adp",
-    "paycom",
-    "ultipro"
+    "workday.com",
+    "myworkdayjobs.com",
+    "greenhouse.io",
+    "lever.co",
+    "icims.com",
+    "smartrecruiters.com",
+    "successfactors.com",
+    "brassring.com",
+    "recruiting",
+    "talent",
+    "applytracking.com",
+    "applicantstack.com",
+    "hire.lever.co",
+    "jobs.lever.co",
+    "breezy.hr",
+    "recruitee.com",
+    "ashbyhq.com",
+    "jobvite.com",
+    "adp.com",
+    "ultipro.com",
+    "careerplug.com",
+    "teamtailor.com",
+    "paycor.com",
+    "oraclecloud.com",
+    "dayforcehcm.com",
+    "eightfold.ai",
+    "comeet.co",
+    "jobscore.com",
+    "recruitingemail.com",
+    "mytalentplatform.com",
 ]
 
-# Email Subject Patterns for Job Applications
+# Common subject lines that appear in job-related emails
 JOB_EMAIL_SUBJECT_PATTERNS = [
     "application received",
-    "thank you for your application",
-    "application confirmation",
-    "your application has been received",
-    "application submitted",
-    "job application received",
-    "application status update",
+    "thank you for applying",
+    "your application",
+    "submitted your application",
+    "interview",
+    "candidate update",
+    "recruiter",
+    "career opportunity",
+    "hiring process",
     "next steps",
-    "interview invitation",
-    "application update"
+    "offer",
+    "decision on your application",
+    "position at",
 ]
-

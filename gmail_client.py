@@ -8,6 +8,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from email_classifier import RecruitingEmailClassifier
 from config import GMAIL_CREDENTIALS_FILE, GMAIL_TOKEN_FILE, MAX_EMAILS_PER_CHECK
 
 # Gmail API scopes
@@ -68,25 +69,44 @@ class GmailClient:
             return []
     
     def get_job_application_emails(self, days_back=30):
-        """Get emails that might be job application confirmations."""
-        from config import JOB_PLATFORM_PATTERNS, JOB_EMAIL_SUBJECT_PATTERNS
-        
-        # Build search query
-        query_parts = []
-        
-        # Search for job platform emails
-        for platform in JOB_PLATFORM_PATTERNS:
-            query_parts.append(f"from:{platform}")
-        
-        # Search for job-related subjects
-        for subject_pattern in JOB_EMAIL_SUBJECT_PATTERNS:
-            query_parts.append(f'subject:"{subject_pattern}"')
-        
-        # Combine with OR logic and date filter
-        query = f"({' OR '.join(query_parts)}) newer_than:{days_back}d"
-        
-        print(f"Searching for job emails with query: {query}")
-        return self.search_emails(query)
+        """
+        Fetch recent emails and use Gemini AI to decide which ones are job-related.
+        Removes all manual filters (no domain or subject lists).
+        """
+        classifier = RecruitingEmailClassifier()
+
+        # Step 1: Pull all recent emails (unfiltered)
+        query = f"newer_than:{days_back}d"
+        print(f"📬 Fetching all emails from the past {days_back} days for AI classification...")
+        messages = self.search_emails(query)
+        if not messages:
+            print("⚠️ No emails retrieved from Gmail.")
+            return []
+
+        job_emails = []
+
+        # Step 2: Iterate and classify each email
+        for msg in messages:
+            if not isinstance(msg, dict) or "id" not in msg:
+                print("⚠️ Skipping malformed Gmail message (missing 'id')")
+                continue
+
+            details = self.get_email_details(msg["id"])
+            if not details:
+                continue
+
+            subject = details.get("subject", "No subject")
+            try:
+                if classifier.is_job_related(details):
+                    print(f"✅ Job-related email detected: {subject[:80]}")
+                    job_emails.append(details)
+            except Exception as e:
+                print(f"⚠️ Error during AI classification for '{subject}': {e}")
+                continue
+
+        print(f"\n📊 AI identified {len(job_emails)} job-related emails out of {len(messages)} total.")
+        return job_emails
+
     
     def get_email_details(self, message_id):
         """Get detailed information about a specific email."""
@@ -157,6 +177,11 @@ class GmailClient:
                             # Simple HTML tag removal (you might want to use BeautifulSoup for better parsing)
                             import re
                             body = re.sub('<[^<]+?>', '', html_content)
+                elif part['mimeType'].startswith('multipart/'):
+                    # Recursively handle nested multipart messages
+                    nested_body = self._extract_email_body(part)
+                    if nested_body:
+                        body += nested_body
         else:
             # Single part message
             if payload['mimeType'] == 'text/plain':
@@ -169,17 +194,20 @@ class GmailClient:
                     html_content = base64.urlsafe_b64decode(data).decode('utf-8')
                     import re
                     body = re.sub('<[^<]+?>', '', html_content)
+            elif payload['mimeType'].startswith('multipart/'):
+                # Handle multipart messages
+                nested_body = self._extract_email_body(payload)
+                if nested_body:
+                    body += nested_body
         
         return body.strip()
     
     def get_recent_job_emails(self, days_back=7):
-        """Get recent job application emails."""
-        messages = self.get_job_application_emails(days_back)
-        email_details = []
-        
-        for message in messages:
-            details = self.get_email_details(message['id'])
-            if details:
-                email_details.append(details)
-        
-        return email_details
+        """
+        Get recent job-related emails classified by Gemini.
+        (No need to re-fetch by 'id' — they already contain all details.)
+        """
+        job_emails = self.get_job_application_emails(days_back)
+        print(f"📦 Returning {len(job_emails)} fully parsed job emails.")
+        return job_emails
+

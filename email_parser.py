@@ -15,7 +15,36 @@ class EmailParser:
             raise ValueError("GEMINI_API_KEY not found in environment variables")
         
         genai.configure(api_key=GEMINI_API_KEY)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.model = genai.GenerativeModel('gemini-2.0-flash-001')
+
+        self.STATUS_MAP = {
+            "applied": [
+                "thank you for applying",
+                "application received",
+                "we have received your application",
+            ],
+            "interview": [
+                "invite",
+                "schedule an interview",
+                "interview",
+                "call with",
+                "recruiter screen",
+                "meet",
+            ],
+            "offer": [
+                "congratulations",
+                "offer",
+                "extend an offer",
+                "thrilled to offer",
+            ],
+            "rejected": [
+                "unfortunately",
+                "we regret",
+                "not moving forward",
+                "decline",
+            ],
+            "withdrawn": ["withdrawn", "you withdrew", "closed application"],
+        }
     
     def parse_job_email(self, email_data: Dict) -> Optional[Dict]:
         """Parse job application email and extract structured information."""
@@ -29,22 +58,32 @@ class EmailParser:
             # Get AI response
             response = self.model.generate_content(prompt)
             
-            # Parse AI response
-            extracted_data = self._parse_ai_response(response.text)
-            
-            if extracted_data:
-                # Add email metadata
-                extracted_data.update({
-                    'email_subject': email_data.get('subject'),
-                    'email_body': email_data.get('body'),
-                    'email_date': self._parse_email_date(email_data.get('date')),
-                    'gmail_message_id': email_data.get('message_id')
-                })
-                
-                return extracted_data
-            
-            return None
-            
+            raw_text = getattr(response, "text", None)
+            if not raw_text and hasattr(response, "candidates"):
+                raw_text = response.candidates[0].content.parts[0].text
+
+            extracted_data = self._parse_ai_response(raw_text)
+
+            if not extracted_data:
+                return None
+
+            # Fallback rule-based status correction
+            body = email_data.get("body", "").lower()
+            rule_status = self._infer_status(body)
+            if extracted_data.get("status") in [None, "applied"] and rule_status:
+                extracted_data["status"] = rule_status
+
+            extracted_data.update(
+                {
+                    "email_subject": email_data.get("subject"),
+                    "email_body": email_data.get("body"),
+                    "email_date": self._parse_email_date(email_data.get("date")),
+                    "gmail_message_id": email_data.get("message_id"),
+                }
+            )
+
+            return extracted_data
+
         except Exception as e:
             print(f"Error parsing email: {e}")
             return None
@@ -65,7 +104,7 @@ class EmailParser:
         body = email_data.get('body', '')
         if body:
             # Truncate body if too long
-            max_body_length = 2000
+            max_body_length = 4000
             if len(body) > max_body_length:
                 body = body[:max_body_length] + "..."
             content_parts.append(f"Body: {body}")
@@ -73,29 +112,43 @@ class EmailParser:
         return "\n\n".join(content_parts)
     
     def _create_extraction_prompt(self, email_content: str) -> str:
-        """Create prompt for Gemini to extract job application information."""
+        """Prompt for Gemini to extract job application information."""
         return f"""
-You are an AI assistant that extracts job application information from emails. 
+You are a precise information extraction model.
 
-Please analyze the following email and extract the following information in JSON format:
-
+Your goal is to analyze the following email and determine if it is related to a job application.
+If it is not about a job application, return exactly this JSON:
 {{
-    "company_name": "Name of the company",
-    "job_title": "Title of the position applied for",
-    "platform": "Platform used (workday, greenhouse, lever, etc.)",
-    "status": "Current status (applied, interview, rejected, etc.)",
-    "date_applied": "Date when the application was submitted (YYYY-MM-DD format)"
+  "company_name": null,
+  "job_title": null,
+  "platform": null,
+  "status": null,
+  "date_applied": null
 }}
 
-Rules:
-1. Extract only information that is explicitly mentioned in the email
-2. If information is not available, use null
-3. For platform, identify from the sender email domain or email content
-4. For status, determine from email content (e.g., "application received" = "applied")
-5. For date_applied, extract from email content or use email date as fallback
-6. Return ONLY valid JSON, no additional text
+If it IS related to a job application, extract:
+- company_name
+- job_title
+- platform (if any mentioned: workday, greenhouse, lever, icims, etc.)
+- status (one of: applied, interview, offer, rejected, withdrawn)
+- date_applied (prefer from text, else use email date)
 
-Email content:
+Use only information explicitly in the email.
+Do not infer or guess values not clearly supported.
+
+Return *only* valid JSON — no code fences, commentary, or explanations.
+
+Example 1:
+Email: "Thank you for applying to Google for the Software Engineer Intern role via Workday. Your application was received on October 1, 2025."
+JSON:
+{{"company_name":"Google","job_title":"Software Engineer Intern","platform":"workday","status":"applied","date_applied":"2025-10-01"}}
+
+Example 2:
+Email: "We'd like to invite you to interview for the SWE Intern position at Microsoft."
+JSON:
+{{"company_name":"Microsoft","job_title":"SWE Intern","platform":null,"status":"interview","date_applied":null}}
+
+Now analyze the following email:
 {email_content}
 
 JSON response:
@@ -104,83 +157,54 @@ JSON response:
     def _parse_ai_response(self, response_text: str) -> Optional[Dict]:
         """Parse AI response and extract JSON data."""
         try:
-            # Clean up response text
+            if not response_text:
+                return None
+
             response_text = response_text.strip()
-            
-            # Remove markdown code blocks if present
-            if response_text.startswith('```'):
-                lines = response_text.split('\n')
-                json_start = -1
-                json_end = -1
-                
-                for i, line in enumerate(lines):
-                    if line.strip() in ['```', '```json']:
-                        if json_start == -1:
-                            json_start = i + 1
-                        else:
-                            json_end = i
-                            break
-                
-                if json_start != -1 and json_end != -1:
-                    response_text = '\n'.join(lines[json_start:json_end])
-            
-            # Parse JSON
+
+            # Strip code fences or markdown
+            if response_text.startswith("```"):
+                response_text = re.sub(r"^```(?:json)?|```$", "", response_text, flags=re.MULTILINE).strip()
+
             data = json.loads(response_text)
-            
-            # Validate required fields
-            required_fields = ['company_name', 'job_title', 'platform']
-            for field in required_fields:
-                if not data.get(field):
-                    print(f"Missing required field: {field}")
-                    return None
-            
-            # Clean and validate data
+            if not data or not isinstance(data, dict):
+                return None
+
+            # Clean + normalize
             cleaned_data = self._clean_extracted_data(data)
-            
             return cleaned_data
-            
-        except json.JSONDecodeError as e:
-            print(f"Failed to parse AI response as JSON: {e}")
-            print(f"Response text: {response_text}")
+
+        except json.JSONDecodeError:
+            print("⚠️ JSON parsing failed. Raw output:", response_text)
             return None
         except Exception as e:
-            print(f"Error parsing AI response: {e}")
+            print("Error parsing AI response:", e)
             return None
     
     def _clean_extracted_data(self, data: Dict) -> Dict:
-        """Clean and validate extracted data."""
         cleaned = {}
+
+        def clean_str(v):
+            return v.strip() if isinstance(v, str) and v.strip() else None
+
+        cleaned["company_name"] = clean_str(data.get("company_name"))
+        cleaned["job_title"] = clean_str(data.get("job_title"))
+        cleaned["platform"] = clean_str(data.get("platform"))
         
-        # Clean company name
-        company_name = data.get('company_name', '').strip()
-        if company_name:
-            cleaned['company_name'] = company_name
+        status = data.get("status")
+        cleaned["status"] = clean_str(status.lower()) if isinstance(status, str) else "applied"
         
-        # Clean job title
-        job_title = data.get('job_title', '').strip()
-        if job_title:
-            cleaned['job_title'] = job_title
-        
-        # Clean platform
-        platform = data.get('platform', '').strip().lower()
-        if platform:
-            cleaned['platform'] = platform
-        
-        # Clean status
-        status = data.get('status', '').strip().lower()
-        if status:
-            cleaned['status'] = status
-        else:
-            cleaned['status'] = 'applied'  # Default status
-        
-        # Parse and clean date
-        date_applied = data.get('date_applied')
-        if date_applied:
-            parsed_date = self._parse_date_string(date_applied)
-            if parsed_date:
-                cleaned['date_applied'] = parsed_date
-        
+        cleaned["date_applied"] = self._parse_date_string(data.get("date_applied"))
         return cleaned
+
+
+    def _infer_status(self, text: str) -> Optional[str]:
+        """Fallback rule-based status inference from body text."""
+        text = text.lower()
+        for status, phrases in self.STATUS_MAP.items():
+            if any(p in text for p in phrases):
+                return status
+        return None
     
     def _parse_email_date(self, date_string: str) -> Optional[datetime]:
         """Parse email date string to datetime object."""
@@ -193,6 +217,13 @@ JSON response:
                 '%a, %d %b %Y %H:%M:%S %z',
                 '%a, %d %b %Y %H:%M:%S %Z',
                 '%d %b %Y %H:%M:%S %z',
+                '%a, %d %b %Y %H:%M:%S %z (%Z)',
+                '%a, %d %b %Y %H:%M:%S +0000 (%Z)',
+                '%a, %d %b %Y %H:%M:%S -0400 (%Z)',
+                '%a, %d %b %Y %H:%M:%S -0500 (%Z)',
+                '%a, %d %b %Y %H:%M:%S +0000 (UTC)',
+                '%a, %d %b %Y %H:%M:%S -0400 (EDT)',
+                '%a, %d %b %Y %H:%M:%S -0500 (EST)',
                 '%Y-%m-%d %H:%M:%S',
                 '%Y-%m-%d'
             ]

@@ -36,23 +36,65 @@ class DatabaseManager:
         self.session = Session()
     
     def add_job_application(self, job_data):
-        """Add a new job application to the database."""
+        """Add a new job application to the database or update existing one."""
         try:
-            # Check if application already exists
-            existing = self.session.query(JobApplication).filter_by(
+            # First check by message ID (exact duplicate)
+            existing_by_message = self.session.query(JobApplication).filter_by(
                 gmail_message_id=job_data['gmail_message_id']
             ).first()
             
-            if existing:
-                print(f"Job application already exists for message ID: {job_data['gmail_message_id']}")
-                return existing
+            if existing_by_message:
+                print(f"Email already processed: {job_data['gmail_message_id']}")
+                return existing_by_message
             
+            # Check for similar application (same company + similar job title)
+            company_name = job_data['company_name'].lower().strip()
+            job_title = job_data.get('job_title', '').lower().strip()
+            
+            existing_by_content = self.session.query(JobApplication).filter(
+                JobApplication.company_name.ilike(f"%{company_name}%")
+            ).all()
+            
+            # Find the best match based on company name similarity
+            best_match = None
+            for existing in existing_by_content:
+                existing_company = existing.company_name.lower().strip()
+                existing_title = existing.job_title.lower().strip()
+                
+                # Check if company names are very similar
+                if (company_name in existing_company or existing_company in company_name or 
+                    company_name.split()[0] == existing_company.split()[0]):
+                    
+                    # If job titles are similar or one is unknown, consider it a match
+                    if (job_title == 'unknown position' or existing_title == 'unknown position' or
+                        job_title in existing_title or existing_title in job_title or
+                        not job_title or not existing_title):
+                        best_match = existing
+                        break
+            
+            if best_match:
+                # Update existing application with new information
+                best_match.status = job_data.get('status', best_match.status)
+                best_match.email_subject = job_data.get('email_subject', best_match.email_subject)
+                best_match.email_body = job_data.get('email_body', best_match.email_body)
+                best_match.email_date = job_data['email_date']
+                best_match.updated_at = datetime.utcnow()
+                
+                # Update job title if we got a better one
+                if job_title and job_title != 'unknown position' and best_match.job_title.lower() == 'unknown position':
+                    best_match.job_title = job_data.get('job_title', best_match.job_title)
+                
+                self.session.commit()
+                print(f"Updated existing application: {job_data['company_name']} - {job_data.get('job_title', 'Unknown')}")
+                return best_match
+            
+            # Create new application
             job_app = JobApplication(
                 company_name=job_data['company_name'],
-                job_title=job_data['job_title'],
-                platform=job_data['platform'],
+                job_title=job_data.get('job_title', 'Unknown Position'),
+                platform=job_data.get('platform', 'Unknown Platform'),
                 status=job_data.get('status', 'applied'),
-                date_applied=job_data['date_applied'],
+                date_applied=job_data.get('date_applied') or job_data.get('email_date'),
                 email_subject=job_data.get('email_subject'),
                 email_body=job_data.get('email_body'),
                 email_date=job_data['email_date'],
@@ -61,7 +103,7 @@ class DatabaseManager:
             
             self.session.add(job_app)
             self.session.commit()
-            print(f"Added job application: {job_data['company_name']} - {job_data['job_title']}")
+            print(f"Added new application: {job_data['company_name']} - {job_data.get('job_title', 'Unknown')}")
             return job_app
             
         except Exception as e:
@@ -69,9 +111,37 @@ class DatabaseManager:
             print(f"Error adding job application: {e}")
             return None
     
-    def get_all_applications(self):
-        """Get all job applications."""
-        return self.session.query(JobApplication).order_by(JobApplication.date_applied.desc()).all()
+    def get_all_applications(self, days_back=None):
+        """Get job applications, optionally filtered by days back."""
+        query = self.session.query(JobApplication)
+        
+        if days_back:
+            from datetime import datetime, timedelta
+            cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+            query = query.filter(JobApplication.created_at >= cutoff_date)
+        
+        return query.order_by(JobApplication.date_applied.desc()).all()
+    
+    def cleanup_old_applications(self, days_back=90):
+        """Remove applications older than specified days (default 90 days)."""
+        try:
+            from datetime import datetime, timedelta
+            cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+            
+            old_applications = self.session.query(JobApplication).filter(
+                JobApplication.created_at < cutoff_date
+            ).all()
+            
+            count = len(old_applications)
+            if count > 0:
+                for app in old_applications:
+                    self.session.delete(app)
+                self.session.commit()
+                print(f"Cleaned up {count} old applications (older than {days_back} days)")
+            
+        except Exception as e:
+            self.session.rollback()
+            print(f"Error cleaning up old applications: {e}")
     
     def get_application_by_id(self, app_id):
         """Get a specific job application by ID."""

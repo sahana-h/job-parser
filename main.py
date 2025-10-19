@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from gmail_client import GmailClient
 from email_parser import EmailParser
 from database import DatabaseManager
+from email_classifier import RecruitingEmailClassifier
 
 class JobApplicationTracker:
     """Main job application tracker application."""
@@ -14,41 +15,66 @@ class JobApplicationTracker:
         self.gmail_client = GmailClient()
         self.email_parser = EmailParser()
         self.db_manager = DatabaseManager()
+        self.recruiting_classifier = RecruitingEmailClassifier()
+
     
-    def scan_emails(self, days_back=7):
+    def scan_emails(self, days_back=90):
         """Scan Gmail for job application emails."""
         print(f"Scanning Gmail for job application emails from the last {days_back} days...")
         
         try:
+            # Clean up old applications first (keep 90 days)
+            print("🧹 Cleaning up applications older than 90 days...")
+            self.db_manager.cleanup_old_applications(90)
+            
             # Get recent job emails
             emails = self.gmail_client.get_recent_job_emails(days_back)
             print(f"Found {len(emails)} potential job emails")
             
             processed_count = 0
             new_applications = 0
+            updated_applications = 0
             
             for email in emails:
-                print(f"\nProcessing email: {email.get('subject', 'No subject')[:50]}...")
-                
-                # Parse email with AI
+                subject = email.get("subject", "No subject")
+                print(f"\n📧 Processing email: {subject[:60]}")
+
+                # 🧠 Step 1: Use AI to decide if this email is job-related
+                try:
+                    if not self.recruiting_classifier.is_job_related(email):
+                        print(f"🚫 Skipping non-recruiting email: {subject}")
+                        continue
+                except Exception as e:
+                    print(f"⚠️ Error during AI classification: {e}")
+                    continue
+
+                # 🤖 Step 2: Parse the recruiting email to extract structured info
                 job_data = self.email_parser.parse_job_email(email)
-                
-                if job_data:
-                    # Add to database
+                if not job_data:
+                    print("❌ Could not parse job information from email.")
+                    continue
+
+                # 💾 Step 3: Store or update in database
+                try:
                     result = self.db_manager.add_job_application(job_data)
                     if result:
-                        new_applications += 1
-                        print(f"✅ Added: {job_data['company_name']} - {job_data['job_title']}")
+                        if "Updated existing application" in str(result):
+                            updated_applications += 1
+                        else:
+                            new_applications += 1
+                        print(f"✅ Added: {job_data.get('company_name', 'Unknown')} - {job_data.get('job_title', 'Unknown')}")
                     else:
-                        print(f"ℹ️  Already exists: {job_data['company_name']} - {job_data['job_title']}")
-                else:
-                    print("❌ Could not parse job information from email")
-                
+                        print(f"ℹ️ Already exists: {job_data.get('company_name', 'Unknown')} - {job_data.get('job_title', 'Unknown')}")
+                except Exception as e:
+                    print(f"❌ Error adding to database: {e}")
+                    continue
+
                 processed_count += 1
             
             print(f"\n📊 Summary:")
             print(f"   Processed: {processed_count} emails")
             print(f"   New applications: {new_applications}")
+            print(f"   Updated applications: {updated_applications}")
             
         except Exception as e:
             print(f"Error scanning emails: {e}")
@@ -138,8 +164,8 @@ def main():
     parser = argparse.ArgumentParser(description="Job Application Tracker")
     parser.add_argument('command', choices=['scan', 'list', 'search', 'update', 'stats'], 
                        help='Command to execute')
-    parser.add_argument('--days', type=int, default=7, 
-                       help='Number of days to scan back (default: 7)')
+    parser.add_argument('--days', type=int, default=90, 
+                       help='Number of days to scan back (default: 90)')
     parser.add_argument('--limit', type=int, default=10, 
                        help='Number of applications to list (default: 10)')
     parser.add_argument('--company', type=str, 
