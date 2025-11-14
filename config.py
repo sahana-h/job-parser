@@ -24,5 +24,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///job_applications.db")
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 
 # Email Processing Configuration
+# Daily scheduler runs at this time (24-hour format, e.g., "09:00" for 9 AM)
+SCHEDULER_DAILY_TIME = os.getenv("SCHEDULER_DAILY_TIME", "09:00")
+# Legacy: CHECK_INTERVAL_MINUTES (for backward compatibility, but daily scheduler is preferred)
 CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
 MAX_EMAILS_PER_CHECK = int(os.getenv("MAX_EMAILS_PER_CHECK", "50"))

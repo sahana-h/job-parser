@@ -9,7 +9,7 @@ from gmail_client import GmailClient
 from email_parser import EmailParser
 from email_classifier import RecruitingEmailClassifier
 from token_manager import decrypt_token
-from config import CHECK_INTERVAL_MINUTES
+from config import SCHEDULER_DAILY_TIME, CHECK_INTERVAL_MINUTES
 
 class EmailMonitor:
     """Background email monitor that runs continuously for all users."""
@@ -17,18 +17,36 @@ class EmailMonitor:
     def __init__(self):
         self.is_running = False
     
-    def start_monitoring(self):
-        """Start the background monitoring service."""
+    def start_monitoring(self, use_daily=True):
+        """
+        Start the background monitoring service.
+        
+        Args:
+            use_daily: If True, runs once daily at SCHEDULER_DAILY_TIME.
+                      If False, runs every CHECK_INTERVAL_MINUTES (legacy mode).
+        """
         print("🤖 Starting AI Email Monitor...")
-        print(f"📧 Will check Gmail for all users every {CHECK_INTERVAL_MINUTES} minutes")
+        if use_daily:
+            print(f"📧 Will check Gmail for all users daily at {SCHEDULER_DAILY_TIME}")
+            print(f"   Checking emails from the past 1 day for each user")
+        else:
+            print(f"📧 Will check Gmail for all users every {CHECK_INTERVAL_MINUTES} minutes")
         print("🔄 Press Ctrl+C to stop monitoring")
         print("-" * 50)
         
         try:
             # Schedule the email checking job
-            schedule.every(CHECK_INTERVAL_MINUTES).minutes.do(self.check_emails_for_all_users)
+            if use_daily:
+                # Run daily at specified time
+                schedule.every().day.at(SCHEDULER_DAILY_TIME).do(self.check_emails_for_all_users)
+                print(f"✅ Scheduled to run daily at {SCHEDULER_DAILY_TIME}")
+            else:
+                # Legacy: Run every X minutes
+                schedule.every(CHECK_INTERVAL_MINUTES).minutes.do(self.check_emails_for_all_users)
+                print(f"✅ Scheduled to run every {CHECK_INTERVAL_MINUTES} minutes")
             
             # Run initial check
+            print("\n🚀 Running initial email check...")
             self.check_emails_for_all_users()
             
             self.is_running = True
@@ -90,7 +108,23 @@ class EmailMonitor:
             print(f"❌ Error checking emails: {e}")
     
     def process_user_emails(self, user_id, days_back=1):
-        """Process emails for a specific user."""
+        """
+        Process emails for a specific user.
+        
+        This method:
+        - Fetches emails from the past N days (default: 1 day for daily scheduler)
+        - Filters out already processed emails (using message IDs)
+        - Uses AI to classify job-related emails
+        - Parses and stores new job applications
+        - Updates existing applications if found
+        
+        Args:
+            user_id: User ID to process emails for
+            days_back: Number of days to look back (default: 1 for daily checks)
+        
+        Returns:
+            Tuple of (new_applications_count, updated_applications_count)
+        """
         db = DatabaseManager()
         try:
             user = db.get_user_by_id(user_id)

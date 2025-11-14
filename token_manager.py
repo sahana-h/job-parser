@@ -52,11 +52,33 @@ def decrypt_token(encrypted_token_bytes):
     try:
         # Handle both bytes and string (PostgreSQL Text column returns string)
         if isinstance(encrypted_token_bytes, str):
-            # Convert string back to bytes (Fernet tokens are base64-encoded)
-            encrypted_token_bytes = encrypted_token_bytes.encode('utf-8')
+            # Check if the string has escape sequences (like \x67...)
+            # This can happen if the token was stored incorrectly
+            if '\\x' in encrypted_token_bytes and not encrypted_token_bytes.startswith('gAAAAA'):
+                # Try to decode from escaped representation
+                try:
+                    # Remove the leading backslashes and decode
+                    if encrypted_token_bytes.startswith('\\x'):
+                        # It's a hex-escaped string, decode it
+                        encrypted_token_bytes = bytes.fromhex(encrypted_token_bytes.replace('\\x', ''))
+                    else:
+                        # Try unicode_escape to handle \x escapes
+                        encrypted_token_bytes = encrypted_token_bytes.encode('latin-1').decode('unicode_escape').encode('latin-1')
+                except:
+                    # If that fails, just try normal UTF-8 encoding
+                    encrypted_token_bytes = encrypted_token_bytes.encode('utf-8')
+            else:
+                # Normal case: Fernet tokens are base64-encoded strings
+                encrypted_token_bytes = encrypted_token_bytes.encode('utf-8')
         
         return _f.decrypt(encrypted_token_bytes)
     except Exception as e:
-        print(f"Error decrypting token: {e}")
+        error_msg = str(e) if e else "Unknown error"
+        error_type = type(e).__name__
+        print(f"Error decrypting token ({error_type}): {error_msg}")
+        # If it's an InvalidToken error, the token was encrypted with a different key
+        if "InvalidToken" in error_type or "Invalid" in error_type:
+            print("   → Token was encrypted with a different ENCRYPTION_KEY")
+            print("   → User needs to reconnect Gmail to re-encrypt token")
         return None
 

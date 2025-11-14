@@ -280,6 +280,28 @@ def create_app():
             flash(f'Error connecting Gmail: {e}', 'error')
             return redirect(url_for('index'))
     
+    @app.route('/disconnect_gmail')
+    @login_required
+    def disconnect_gmail():
+        """Disconnect Gmail by clearing the token."""
+        try:
+            db = DatabaseManager()
+            try:
+                user = db.get_user_by_id(current_user.id)
+                if user:
+                    user.gmail_token = None
+                    user.updated_at = datetime.utcnow()
+                    db.session.commit()
+                    flash('Gmail disconnected successfully. You can reconnect anytime.', 'success')
+                else:
+                    flash('User not found', 'error')
+            finally:
+                db.close()
+        except Exception as e:
+            flash(f'Error disconnecting Gmail: {e}', 'error')
+        
+        return redirect(url_for('index'))
+    
     @app.route('/gmail_callback')
     @login_required
     def gmail_callback():
@@ -318,8 +340,14 @@ def create_app():
             # Exchange code for token
             token_json = GmailClient.get_token_from_flow(flow, code)
             encrypted_token_bytes = encrypt_token(token_json.encode('utf-8'))
-            # Convert bytes to string for PostgreSQL Text column (Fernet tokens are base64-encoded strings)
-            encrypted_token = encrypted_token_bytes.decode('utf-8')
+            # Convert bytes to string for PostgreSQL Text column
+            # Fernet tokens are base64-encoded, so they decode to valid UTF-8 strings
+            try:
+                encrypted_token = encrypted_token_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                # Fallback: use base64 encoding if UTF-8 fails (shouldn't happen with Fernet)
+                import base64
+                encrypted_token = base64.b64encode(encrypted_token_bytes).decode('utf-8')
             
             # Save token to database
             db = DatabaseManager()

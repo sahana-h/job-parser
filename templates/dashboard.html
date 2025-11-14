@@ -261,6 +261,7 @@
                 <div style="display: flex; gap: 10px; align-items: center;">
                     {% if gmail_connected %}
                         <span style="color: white; padding: 8px 16px; background: rgba(76, 175, 80, 0.3); border-radius: 8px; font-size: 14px;">✓ Gmail Connected</span>
+                        <a href="{{ url_for('disconnect_gmail') }}" style="color: white; text-decoration: none; padding: 8px 16px; background: rgba(244, 67, 54, 0.3); border-radius: 8px; font-size: 14px;" onclick="return confirm('Are you sure you want to disconnect Gmail? You will need to reconnect to scan emails.')">Disconnect Gmail</a>
                     {% else %}
                         <a href="{{ url_for('connect_gmail') }}" style="color: white; text-decoration: none; padding: 8px 16px; background: rgba(244, 67, 54, 0.3); border-radius: 8px; font-size: 14px;">⚠ Connect Gmail</a>
                     {% endif %}
