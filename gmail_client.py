@@ -53,16 +53,37 @@ class GmailClient:
         print("Gmail API authenticated successfully!")
     
     def search_emails(self, query, max_results=MAX_EMAILS_PER_CHECK):
-        """Search for emails matching the query."""
+        """Search for emails matching the query with pagination support."""
         try:
-            results = self.service.users().messages().list(
-                userId='me', 
-                q=query, 
-                maxResults=max_results
-            ).execute()
+            all_messages = []
+            page_token = None
             
-            messages = results.get('messages', [])
-            return messages
+            while True:
+                # Build request parameters
+                request_params = {
+                    'userId': 'me',
+                    'q': query,
+                    'maxResults': min(max_results, 500)  # Gmail API max is 500 per page
+                }
+                
+                if page_token:
+                    request_params['pageToken'] = page_token
+                
+                results = self.service.users().messages().list(**request_params).execute()
+                
+                messages = results.get('messages', [])
+                all_messages.extend(messages)
+                
+                # Check if there are more pages
+                page_token = results.get('nextPageToken')
+                if not page_token or len(all_messages) >= max_results:
+                    break
+            
+            # Limit to max_results if specified
+            if max_results and len(all_messages) > max_results:
+                all_messages = all_messages[:max_results]
+            
+            return all_messages
             
         except HttpError as error:
             print(f"Error searching emails: {error}")
@@ -75,10 +96,10 @@ class GmailClient:
         """
         classifier = RecruitingEmailClassifier()
 
-        # Step 1: Pull all recent emails (unfiltered)
+        # Step 1: Pull all recent emails (unfiltered) - increase limit to 500
         query = f"newer_than:{days_back}d"
         print(f"📬 Fetching all emails from the past {days_back} days for AI classification...")
-        messages = self.search_emails(query)
+        messages = self.search_emails(query, max_results=500)
         if not messages:
             print("⚠️ No emails retrieved from Gmail.")
             return []

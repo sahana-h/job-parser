@@ -143,6 +143,16 @@
             color: #f57c00;
         }
         
+        .status-offer {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        
+        .status-withdrawn {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
         .platform-badge {
             padding: 2px 8px;
             background: #667eea;
@@ -204,7 +214,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 Job Application Tracker</h1>
+            <h1>Job Application Tracker</h1>
             <p>AI-powered email monitoring and application tracking</p>
         </div>
         
@@ -246,6 +256,8 @@
                     <option value="applied">Applied</option>
                     <option value="interview">Interview</option>
                     <option value="rejected">Rejected</option>
+                    <option value="offer">Offer</option>
+                    <option value="withdrawn">Withdrawn</option>
                 </select>
                 <select id="platformFilter" class="filter-select">
                     <option value="">All Platforms</option>
@@ -257,7 +269,7 @@
                     <option value="90">Last 90 days</option>
                     <option value="180">Last 6 months</option>
                 </select>
-                <button onclick="loadData()" class="refresh-btn">🔄 Refresh</button>
+                <button onclick="loadData()" class="refresh-btn">Refresh</button>
                 <select id="pageSize" class="filter-select" onchange="changePageSize()">
                     <option value="10">Show 10</option>
                     <option value="25">Show 25</option>
@@ -469,6 +481,8 @@
                             <option value="applied" ${app.status === 'applied' ? 'selected' : ''}>Applied</option>
                             <option value="interview" ${app.status === 'interview' ? 'selected' : ''}>Interview</option>
                             <option value="rejected" ${app.status === 'rejected' ? 'selected' : ''}>Rejected</option>
+                            <option value="offer" ${app.status === 'offer' ? 'selected' : ''}>Offer</option>
+                            <option value="withdrawn" ${app.status === 'withdrawn' ? 'selected' : ''}>Withdrawn</option>
                         </select>
                     </td>
                 `;

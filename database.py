@@ -16,7 +16,7 @@ class JobApplication(Base):
     id = Column(Integer, primary_key=True)
     company_name = Column(String(255), nullable=False)
     job_title = Column(String(255), nullable=False)
-    platform = Column(String(100), nullable=False)  # workday, greenhouse, etc.
+    platform = Column(String(100), nullable=True)  # workday, greenhouse, etc.
     status = Column(String(100), default="applied")  # applied, interview, rejected, etc.
     date_applied = Column(DateTime, nullable=False)
     email_subject = Column(String(500))
@@ -48,8 +48,13 @@ class DatabaseManager:
                 return existing_by_message
             
             # Check for similar application (same company + similar job title)
-            company_name = job_data['company_name'].lower().strip()
-            job_title = job_data.get('job_title', '').lower().strip()
+            company_name = (job_data.get('company_name') or '').lower().strip()
+            job_title = (job_data.get('job_title') or '').lower().strip()
+            
+            # Skip if no company name
+            if not company_name:
+                print(f"⚠️ Skipping application with no company name")
+                return None
             
             existing_by_content = self.session.query(JobApplication).filter(
                 JobApplication.company_name.ilike(f"%{company_name}%")
@@ -89,10 +94,15 @@ class DatabaseManager:
                 return best_match
             
             # Create new application
+            company_name = job_data.get('company_name')
+            if not company_name:
+                print(f"⚠️ Skipping application with no company name")
+                return None
+                
             job_app = JobApplication(
-                company_name=job_data['company_name'],
-                job_title=job_data.get('job_title', 'Unknown Position'),
-                platform=job_data.get('platform', 'Unknown Platform'),
+                company_name=company_name,
+                job_title=job_data.get('job_title') or 'Unknown Position',
+                platform=job_data.get('platform') or 'Unknown Platform',
                 status=job_data.get('status', 'applied'),
                 date_applied=job_data.get('date_applied') or job_data.get('email_date'),
                 email_subject=job_data.get('email_subject'),

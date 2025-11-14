@@ -4,15 +4,15 @@ An AI-powered tool that automatically monitors your Gmail inbox for job applicat
 
 ## Features
 
-- 🔍 **Automatic Email Scanning**: Monitors Gmail for job application emails from platforms like Workday, Greenhouse, Lever, etc.
-- 🤖 **AI-Powered Extraction**: Uses Google Gemini 2.0 Flash to extract structured job application data
-- 💾 **Local Database**: Stores all application data in SQLite for privacy and offline access
-- 📊 **Application Tracking**: View, search, and update your job application status
-- 🔄 **Smart Deduplication**: Automatically updates existing applications instead of creating duplicates
-- 🧹 **Auto-Cleanup**: Only keeps applications from the last 30 days
-- 🌐 **Web Dashboard**: Beautiful web interface with charts, statistics, and pagination
-- 🤖 **Background Monitoring**: Continuous email monitoring with configurable intervals
-- 🔒 **Privacy-First**: All data stored locally, no external services required
+- **Automatic Email Scanning**: Monitors Gmail for job application emails from platforms like Workday, Greenhouse, Lever, etc.
+- **AI-Powered Extraction**: Uses Google Gemini 2.0 Flash to extract structured job application data
+- **Local Database**: Stores all application data in SQLite for privacy and offline access
+- **Application Tracking**: View, search, and update your job application status
+- **Smart Deduplication**: Automatically updates existing applications instead of creating duplicates
+- **Auto-Cleanup**: Only keeps applications from the last 30 days
+- **Web Dashboard**: Beautiful web interface with charts, statistics, and pagination
+- **Background Monitoring**: Continuous email monitoring with configurable intervals
+- **Privacy-First**: All data stored locally, no external services required
 
 ## Setup Instructions
 
