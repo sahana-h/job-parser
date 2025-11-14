@@ -26,7 +26,11 @@ pydantic
 apscheduler
 email-validator
 flask
+flask-login
 schedule
+bcrypt
+cryptography
+psycopg2-binary
 
 
 

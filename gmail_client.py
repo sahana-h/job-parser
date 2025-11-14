@@ -4,13 +4,16 @@ import os
 import base64
 import pickle
 import re
+import json
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google_auth_oauthlib.flow import InstalledAppFlow, Flow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from email_classifier import RecruitingEmailClassifier
 from config import GMAIL_CREDENTIALS_FILE, GMAIL_TOKEN_FILE, MAX_EMAILS_PER_CHECK
+from database import DatabaseManager
+from token_manager import encrypt_token, decrypt_token
 
 # Gmail API scopes
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
@@ -18,40 +21,144 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 class GmailClient:
     """Gmail API client for reading emails."""
     
-    def __init__(self):
+    def __init__(self, user_id=None, token_data=None):
+        """
+        Initialize Gmail client for a specific user.
+        
+        Args:
+            user_id: User ID to load token from database
+            token_data: Optional pre-loaded token data (for web OAuth flow)
+        """
         self.service = None
-        self.authenticate()
+        self.user_id = user_id
+        self.token_data = token_data
+        if user_id or token_data:
+            self.authenticate()
     
     def authenticate(self):
         """Authenticate with Gmail API using OAuth2."""
         creds = None
         
-        # Load existing token if available
-        if os.path.exists(GMAIL_TOKEN_FILE):
+        # Try to load token from provided data or database
+        if self.token_data:
+            # Token data provided directly (from web OAuth flow)
+            try:
+                if isinstance(self.token_data, str):
+                    token_dict = json.loads(self.token_data)
+                else:
+                    token_dict = self.token_data
+                creds = Credentials.from_authorized_user_info(token_dict)
+            except Exception as e:
+                print(f"Error loading token from provided data: {e}")
+        elif self.user_id:
+            # Load token from database
+            db = DatabaseManager()
+            try:
+                user = db.get_user_by_id(self.user_id)
+                if user and user.gmail_token:
+                    encrypted_token = user.gmail_token
+                    decrypted_token = decrypt_token(encrypted_token)
+                    if decrypted_token:
+                        try:
+                            token_dict = json.loads(decrypted_token.decode('utf-8'))
+                            creds = Credentials.from_authorized_user_info(token_dict)
+                        except:
+                            # Try pickle format (for backward compatibility)
+                            creds = pickle.loads(decrypted_token)
+            finally:
+                db.close()
+        
+        # Fallback to local file (for CLI/backward compatibility)
+        if not creds and os.path.exists(GMAIL_TOKEN_FILE):
             with open(GMAIL_TOKEN_FILE, 'rb') as token:
                 creds = pickle.load(token)
         
-        # If no valid credentials, request authorization
+        # If no valid credentials, raise error (user needs to authorize)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                    # Save refreshed token
+                    if self.user_id:
+                        self._save_token_to_db(creds)
+                    elif os.path.exists(GMAIL_TOKEN_FILE):
+                        with open(GMAIL_TOKEN_FILE, 'wb') as token:
+                            pickle.dump(creds, token)
+                except Exception as e:
+                    raise ValueError(f"Token expired and refresh failed: {e}. Please re-authorize Gmail.")
             else:
-                if not os.path.exists(GMAIL_CREDENTIALS_FILE):
-                    raise FileNotFoundError(
-                        f"Gmail credentials file not found: {GMAIL_CREDENTIALS_FILE}\n"
-                        "Please download your OAuth2 credentials from Google Cloud Console."
-                    )
-                
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    GMAIL_CREDENTIALS_FILE, SCOPES)
-                creds = flow.run_local_server(port=0)
-            
-            # Save credentials for next run
-            with open(GMAIL_TOKEN_FILE, 'wb') as token:
-                pickle.dump(creds, token)
+                raise ValueError("Gmail not authorized. Please connect your Gmail account.")
         
         self.service = build('gmail', 'v1', credentials=creds)
-        print("Gmail API authenticated successfully!")
+        if not self.user_id:  # Only print if not in web context
+            print("Gmail API authenticated successfully!")
+    
+    def _save_token_to_db(self, creds):
+        """Save credentials to database for the user."""
+        if not self.user_id:
+            return
+        
+        try:
+            # Convert credentials to JSON-serializable format
+            token_dict = {
+                'token': creds.token,
+                'refresh_token': creds.refresh_token,
+                'token_uri': creds.token_uri,
+                'client_id': creds.client_id,
+                'client_secret': creds.client_secret,
+                'scopes': creds.scopes
+            }
+            token_json = json.dumps(token_dict)
+            encrypted_token = encrypt_token(token_json.encode('utf-8'))
+            
+            db = DatabaseManager()
+            try:
+                db.update_user_gmail_token(self.user_id, encrypted_token)
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"Error saving token to database: {e}")
+    
+    @staticmethod
+    def get_authorization_url(redirect_uri):
+        """Get OAuth authorization URL for web flow."""
+        if not os.path.exists(GMAIL_CREDENTIALS_FILE):
+            raise FileNotFoundError(
+                f"Gmail credentials file not found: {GMAIL_CREDENTIALS_FILE}\n"
+                "Please download your OAuth2 credentials from Google Cloud Console."
+            )
+        
+        # Use Flow for web applications
+        flow = Flow.from_client_secrets_file(
+            GMAIL_CREDENTIALS_FILE,
+            scopes=SCOPES,
+            redirect_uri=redirect_uri
+        )
+        
+        auth_url, state = flow.authorization_url(
+            access_type='offline',
+            include_granted_scopes='true',
+            prompt='consent'
+        )
+        
+        return auth_url, state, flow
+    
+    @staticmethod
+    def get_token_from_flow(flow, authorization_code):
+        """Exchange authorization code for token using flow."""
+        flow.fetch_token(code=authorization_code)
+        creds = flow.credentials
+        
+        # Convert to JSON format
+        token_dict = {
+            'token': creds.token,
+            'refresh_token': creds.refresh_token,
+            'token_uri': creds.token_uri,
+            'client_id': creds.client_id,
+            'client_secret': creds.client_secret,
+            'scopes': creds.scopes
+        }
+        return json.dumps(token_dict)
     
     def search_emails(self, query, max_results=MAX_EMAILS_PER_CHECK):
         """Search for emails matching the query with pagination support."""

@@ -1,19 +1,45 @@
 """Database operations for job application tracker."""
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from config import DATABASE_URL
+import os
+
+# Support for PostgreSQL connection pooling
+def get_database_url():
+    """Get database URL (pool settings are passed to create_engine, not in URL)."""
+    return DATABASE_URL
 
 Base = declarative_base()
+
+class User(Base):
+    """SQLAlchemy model for users."""
+    
+    __tablename__ = 'users'
+    
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    gmail_token = Column(Text)  # Encrypted OAuth token for Gmail API
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship to job applications
+    applications = relationship("JobApplication", back_populates="user")
 
 class JobApplication(Base):
     """SQLAlchemy model for job applications."""
     
     __tablename__ = 'job_applications'
+    __table_args__ = (
+        UniqueConstraint('user_id', 'gmail_message_id', name='uq_user_message'),
+    )
     
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     company_name = Column(String(255), nullable=False)
     job_title = Column(String(255), nullable=False)
     platform = Column(String(100), nullable=True)  # workday, greenhouse, etc.
@@ -22,25 +48,41 @@ class JobApplication(Base):
     email_subject = Column(String(500))
     email_body = Column(Text)
     email_date = Column(DateTime, nullable=False)
-    gmail_message_id = Column(String(255), unique=True, nullable=False)
+    gmail_message_id = Column(String(255), nullable=False)  # Unique per user (composite constraint)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship to user
+    user = relationship("User", back_populates="applications")
 
 class DatabaseManager:
     """Manages database operations."""
     
     def __init__(self):
-        self.engine = create_engine(DATABASE_URL, echo=False)
+        db_url = get_database_url()
+        
+        # Configure connection pooling for PostgreSQL
+        # Pool settings must be passed to create_engine, not in the URL string
+        engine_kwargs = {'echo': False}
+        if db_url.startswith('postgresql://') or db_url.startswith('postgresql+psycopg2://'):
+            engine_kwargs.update({
+                'pool_size': 5,
+                'max_overflow': 10,
+                'pool_pre_ping': True  # Verify connections before using
+            })
+        
+        self.engine = create_engine(db_url, **engine_kwargs)
         Base.metadata.create_all(self.engine)
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
     
-    def add_job_application(self, job_data):
+    def add_job_application(self, job_data, user_id):
         """Add a new job application to the database or update existing one."""
         try:
-            # First check by message ID (exact duplicate)
-            existing_by_message = self.session.query(JobApplication).filter_by(
-                gmail_message_id=job_data['gmail_message_id']
+            # First check by message ID and user (exact duplicate)
+            existing_by_message = self.session.query(JobApplication).filter(
+                JobApplication.gmail_message_id == job_data['gmail_message_id'],
+                JobApplication.user_id == user_id
             ).first()
             
             if existing_by_message:
@@ -57,7 +99,8 @@ class DatabaseManager:
                 return None
             
             existing_by_content = self.session.query(JobApplication).filter(
-                JobApplication.company_name.ilike(f"%{company_name}%")
+                JobApplication.company_name.ilike(f"%{company_name}%"),
+                JobApplication.user_id == user_id
             ).all()
             
             # Find the best match based on company name similarity
@@ -100,6 +143,7 @@ class DatabaseManager:
                 return None
                 
             job_app = JobApplication(
+                user_id=user_id,
                 company_name=company_name,
                 job_title=job_data.get('job_title') or 'Unknown Position',
                 platform=job_data.get('platform') or 'Unknown Platform',
@@ -116,14 +160,28 @@ class DatabaseManager:
             print(f"Added new application: {job_data['company_name']} - {job_data.get('job_title', 'Unknown')}")
             return job_app
             
+        except IntegrityError as e:
+            # Handle unique constraint violation (duplicate message_id)
+            self.session.rollback()
+            if 'gmail_message_id' in str(e) or 'uq_user_message' in str(e):
+                # Try to get the existing application
+                existing = self.session.query(JobApplication).filter(
+                    JobApplication.gmail_message_id == job_data['gmail_message_id'],
+                    JobApplication.user_id == user_id
+                ).first()
+                if existing:
+                    print(f"Email already processed (caught by constraint): {job_data['gmail_message_id']}")
+                    return existing
+            print(f"Integrity error adding job application: {e}")
+            return None
         except Exception as e:
             self.session.rollback()
             print(f"Error adding job application: {e}")
             return None
     
-    def get_all_applications(self, days_back=None):
-        """Get job applications, optionally filtered by days back."""
-        query = self.session.query(JobApplication)
+    def get_all_applications(self, user_id, days_back=None):
+        """Get job applications for a specific user, optionally filtered by days back."""
+        query = self.session.query(JobApplication).filter(JobApplication.user_id == user_id)
         
         if days_back:
             from datetime import datetime, timedelta
@@ -132,13 +190,14 @@ class DatabaseManager:
         
         return query.order_by(JobApplication.date_applied.desc()).all()
     
-    def cleanup_old_applications(self, days_back=90):
-        """Remove applications older than specified days (default 90 days)."""
+    def cleanup_old_applications(self, user_id, days_back=90):
+        """Remove applications older than specified days (default 90 days) for a specific user."""
         try:
             from datetime import datetime, timedelta
             cutoff_date = datetime.utcnow() - timedelta(days=days_back)
             
             old_applications = self.session.query(JobApplication).filter(
+                JobApplication.user_id == user_id,
                 JobApplication.created_at < cutoff_date
             ).all()
             
@@ -153,14 +212,20 @@ class DatabaseManager:
             self.session.rollback()
             print(f"Error cleaning up old applications: {e}")
     
-    def get_application_by_id(self, app_id):
-        """Get a specific job application by ID."""
-        return self.session.query(JobApplication).filter_by(id=app_id).first()
+    def get_application_by_id(self, app_id, user_id):
+        """Get a specific job application by ID for a specific user."""
+        return self.session.query(JobApplication).filter(
+            JobApplication.id == app_id,
+            JobApplication.user_id == user_id
+        ).first()
     
-    def update_application_status(self, app_id, new_status):
+    def update_application_status(self, app_id, user_id, new_status):
         """Update the status of a job application."""
         try:
-            app = self.session.query(JobApplication).filter_by(id=app_id).first()
+            app = self.session.query(JobApplication).filter(
+                JobApplication.id == app_id,
+                JobApplication.user_id == user_id
+            ).first()
             if app:
                 app.status = new_status
                 app.updated_at = datetime.utcnow()
@@ -173,9 +238,9 @@ class DatabaseManager:
             print(f"Error updating application status: {e}")
             return False
     
-    def search_applications(self, company=None, status=None, platform=None):
-        """Search job applications by criteria."""
-        query = self.session.query(JobApplication)
+    def search_applications(self, user_id, company=None, status=None, platform=None):
+        """Search job applications by criteria for a specific user."""
+        query = self.session.query(JobApplication).filter(JobApplication.user_id == user_id)
         
         if company:
             query = query.filter(JobApplication.company_name.ilike(f"%{company}%"))
@@ -185,6 +250,53 @@ class DatabaseManager:
             query = query.filter(JobApplication.platform.ilike(f"%{platform}%"))
         
         return query.order_by(JobApplication.date_applied.desc()).all()
+    
+    # User management methods
+    def create_user(self, email, password_hash):
+        """Create a new user."""
+        try:
+            user = User(email=email, password_hash=password_hash)
+            self.session.add(user)
+            self.session.commit()
+            return user
+        except Exception as e:
+            self.session.rollback()
+            print(f"Error creating user: {e}")
+            return None
+    
+    def get_user_by_email(self, email):
+        """Get a user by email."""
+        return self.session.query(User).filter_by(email=email).first()
+    
+    def get_user_by_id(self, user_id):
+        """Get a user by ID."""
+        return self.session.query(User).filter_by(id=user_id).first()
+    
+    def update_user_gmail_token(self, user_id, token):
+        """Update a user's Gmail OAuth token."""
+        try:
+            user = self.session.query(User).filter_by(id=user_id).first()
+            if user:
+                user.gmail_token = token
+                user.updated_at = datetime.utcnow()
+                self.session.commit()
+                return True
+            return False
+        except Exception as e:
+            self.session.rollback()
+            print(f"Error updating user Gmail token: {e}")
+            return False
+    
+    def get_all_users(self):
+        """Get all users (for scheduler)."""
+        return self.session.query(User).all()
+    
+    def get_processed_message_ids(self, user_id):
+        """Get all processed Gmail message IDs for a user."""
+        applications = self.session.query(JobApplication).filter(
+            JobApplication.user_id == user_id
+        ).all()
+        return {app.gmail_message_id for app in applications if app.gmail_message_id}
     
     def close(self):
         """Close the database session."""
