@@ -2,7 +2,6 @@
 
 import sys
 import argparse
-from datetime import datetime, timedelta
 from gmail_client import GmailClient
 from email_parser import EmailParser
 from database import DatabaseManager

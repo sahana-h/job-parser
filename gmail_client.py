@@ -3,6 +3,7 @@
 import os
 import base64
 import pickle
+import re
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -196,7 +197,6 @@ class GmailClient:
                         if data:
                             html_content = base64.urlsafe_b64decode(data).decode('utf-8')
                             # Simple HTML tag removal (you might want to use BeautifulSoup for better parsing)
-                            import re
                             body = re.sub('<[^<]+?>', '', html_content)
                 elif part['mimeType'].startswith('multipart/'):
                     # Recursively handle nested multipart messages
@@ -213,7 +213,6 @@ class GmailClient:
                 data = payload['body'].get('data')
                 if data:
                     html_content = base64.urlsafe_b64decode(data).decode('utf-8')
-                    import re
                     body = re.sub('<[^<]+?>', '', html_content)
             elif payload['mimeType'].startswith('multipart/'):
                 # Handle multipart messages
