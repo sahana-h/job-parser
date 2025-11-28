@@ -259,6 +259,105 @@ def create_app():
         else:
             return jsonify({'error': 'Failed to update status'}), 500
     
+    @app.route('/api/delete_application', methods=['POST'])
+    @login_required
+    def api_delete_application():
+        """API endpoint to delete one or more applications."""
+        data = request.json
+        app_ids = data.get('ids') or [data.get('id')]  # Support both single ID and list of IDs
+        
+        if not app_ids:
+            return jsonify({'error': 'Missing application id(s)'}), 400
+        
+        # Ensure app_ids is a list
+        if not isinstance(app_ids, list):
+            app_ids = [app_ids]
+        
+        db = DatabaseManager()
+        deleted_count = 0
+        failed_count = 0
+        
+        for app_id in app_ids:
+            success = db.delete_application(app_id, current_user.id)
+            if success:
+                deleted_count += 1
+            else:
+                failed_count += 1
+        
+        db.close()
+        
+        if deleted_count > 0:
+            message = f'Successfully deleted {deleted_count} application(s)'
+            if failed_count > 0:
+                message += f', {failed_count} failed'
+            return jsonify({'success': True, 'message': message, 'deleted': deleted_count})
+        else:
+            return jsonify({'error': 'Failed to delete applications'}), 500
+    
+    @app.route('/api/add_application', methods=['POST'])
+    @login_required
+    def api_add_application():
+        """API endpoint to manually add an application."""
+        data = request.json
+        
+        company_name = data.get('company_name', '').strip()
+        job_title = data.get('job_title', '').strip()
+        platform = data.get('platform', 'Unknown Platform').strip()
+        status = data.get('status', 'applied').strip()
+        date_applied = data.get('date_applied')
+        
+        if not company_name:
+            return jsonify({'error': 'Company name is required'}), 400
+        
+        # Parse date
+        from datetime import datetime
+        try:
+            if date_applied:
+                if isinstance(date_applied, str):
+                    date_applied = datetime.strptime(date_applied, '%Y-%m-%d')
+            else:
+                date_applied = datetime.utcnow()
+        except Exception as e:
+            return jsonify({'error': f'Invalid date format: {e}'}), 400
+        
+        # Create job data structure
+        job_data = {
+            'company_name': company_name,
+            'job_title': job_title or 'Unknown Position',
+            'platform': platform or 'Unknown Platform',
+            'status': status,
+            'date_applied': date_applied,
+            'email_subject': f'Manual entry: {company_name} - {job_title}',
+            'email_body': 'Manually added application',
+            'email_date': date_applied,
+            'gmail_message_id': f'manual_{current_user.id}_{datetime.utcnow().timestamp()}'  # Unique ID for manual entries
+        }
+        
+        db = DatabaseManager()
+        try:
+            result = db.add_job_application(job_data, current_user.id)
+            
+            if result:
+                # Extract data before closing the session
+                app_data = {
+                    'id': result.id,
+                    'company_name': result.company_name,
+                    'job_title': result.job_title
+                }
+                db.close()
+                
+                return jsonify({
+                    'success': True,
+                    'message': 'Application added successfully',
+                    'application': app_data
+                })
+            else:
+                db.close()
+                return jsonify({'error': 'Failed to add application'}), 500
+        except Exception as e:
+            db.close()
+            return jsonify({'error': f'Error adding application: {str(e)}'}), 500
+    
     @app.route('/connect_gmail')
     @login_required
     def connect_gmail():

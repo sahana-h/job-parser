@@ -302,6 +302,8 @@
         
         <div class="applications-table">
             <div class="search-filter">
+                <button onclick="openAddJobModal()" class="refresh-btn" style="background: #4CAF50; margin-right: 10px;">+ Add Job</button>
+                <button onclick="deleteSelected()" id="deleteSelectedBtn" class="refresh-btn" style="background: #f44336; margin-right: 10px; display: none;">Delete Selected (<span id="selectedCount">0</span>)</button>
                 <input type="text" id="searchInput" class="search-input" placeholder="Search companies or job titles...">
                 <select id="statusFilter" class="filter-select">
                     <option value="">All Statuses</option>
@@ -334,6 +336,7 @@
             <table class="table">
                 <thead>
                     <tr>
+                        <th style="width: 40px;"><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
                         <th>Company</th>
                         <th>Position</th>
                         <th>Platform</th>
@@ -355,6 +358,45 @@
         </div>
     </div>
 
+    <!-- Add Job Modal -->
+    <div id="addJobModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+        <div style="background-color: white; margin: 5% auto; padding: 30px; border-radius: 10px; width: 90%; max-width: 500px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+            <h2 style="margin-top: 0; color: #333;">Add New Job Application</h2>
+            <form id="addJobForm" onsubmit="submitAddJob(event)">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-weight: bold;">Company Name *</label>
+                    <input type="text" id="addCompanyName" required style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-weight: bold;">Job Title</label>
+                    <input type="text" id="addJobTitle" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-weight: bold;">Platform</label>
+                    <input type="text" id="addPlatform" placeholder="e.g., Workday, Greenhouse, LinkedIn" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-weight: bold;">Status</label>
+                    <select id="addStatus" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+                        <option value="applied">Applied</option>
+                        <option value="interview">Interview</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="offer">Offer</option>
+                        <option value="withdrawn">Withdrawn</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 5px; color: #666; font-weight: bold;">Date Applied</label>
+                    <input type="date" id="addDateApplied" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px;">
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" onclick="closeAddJobModal()" style="padding: 10px 20px; background: #ccc; color: #333; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">Cancel</button>
+                    <button type="submit" style="padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">Add Job</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         let applications = [];
         let filteredApplications = [];
@@ -362,6 +404,7 @@
         let currentPage = 1;
         let pageSize = 10;
         let selectedDateFilter = '';
+        let selectedApplicationIds = new Set(); // Track selected IDs across pages
         
         // Load data when page loads
         document.addEventListener('DOMContentLoaded', function() {
@@ -522,14 +565,16 @@
             
             pageApps.forEach(app => {
                 const row = document.createElement('tr');
+                const isChecked = selectedApplicationIds.has(app.id);
                 row.innerHTML = `
+                    <td><input type="checkbox" class="app-checkbox" value="${app.id}" ${isChecked ? 'checked' : ''} onchange="updateSelectedCount()"></td>
                     <td>${app.company_name}</td>
                     <td>${app.job_title}</td>
                     <td><span class="platform-badge">${app.platform}</span></td>
                     <td><span class="status-badge status-${app.status}">${app.status}</span></td>
                     <td>${app.date_applied}</td>
                     <td>
-                        <select onchange="updateStatus(${app.id}, this.value)" class="filter-select">
+                        <select onchange="updateStatus(${app.id}, this.value)" class="filter-select" style="width: 100%;">
                             <option value="applied" ${app.status === 'applied' ? 'selected' : ''}>Applied</option>
                             <option value="interview" ${app.status === 'interview' ? 'selected' : ''}>Interview</option>
                             <option value="rejected" ${app.status === 'rejected' ? 'selected' : ''}>Rejected</option>
@@ -540,6 +585,9 @@
                 `;
                 tbody.appendChild(row);
             });
+            
+            // Update select all checkbox state
+            updateSelectAllState();
         }
         
         function filterApplications() {
@@ -557,13 +605,17 @@
             });
             
             currentPage = 1; // Reset to first page when filtering
+            // Clear selections when filtering
+            selectedApplicationIds.clear();
             displayApplications();
+            updateSelectedCount();
         }
         
         function changePageSize() {
             pageSize = parseInt(document.getElementById('pageSize').value);
             currentPage = 1; // Reset to first page
             displayApplications();
+            updateSelectedCount();
         }
         
         function changeDateFilter() {
@@ -576,6 +628,7 @@
             if (currentPage > 1) {
                 currentPage--;
                 displayApplications();
+                updateSelectedCount();
             }
         }
         
@@ -584,6 +637,7 @@
             if (currentPage < totalPages) {
                 currentPage++;
                 displayApplications();
+                updateSelectedCount();
             }
         }
         
@@ -619,6 +673,202 @@
                 }
             } catch (error) {
                 console.error('Error updating status:', error);
+            }
+        }
+        
+        function getSelectedApplicationIds() {
+            // Get from both visible checkboxes and our Set (for cross-page selections)
+            const visibleCheckboxes = document.querySelectorAll('.app-checkbox:checked');
+            const visibleIds = Array.from(visibleCheckboxes).map(cb => parseInt(cb.value));
+            
+            // Update our Set with current checkbox state
+            const allCheckboxes = document.querySelectorAll('.app-checkbox');
+            allCheckboxes.forEach(cb => {
+                const id = parseInt(cb.value);
+                if (cb.checked) {
+                    selectedApplicationIds.add(id);
+                } else {
+                    selectedApplicationIds.delete(id);
+                }
+            });
+            
+            return Array.from(selectedApplicationIds);
+        }
+        
+        function updateSelectedCount() {
+            const selectedIds = getSelectedApplicationIds();
+            const count = selectedIds.length;
+            const deleteBtn = document.getElementById('deleteSelectedBtn');
+            const countSpan = document.getElementById('selectedCount');
+            
+            if (count > 0) {
+                deleteBtn.style.display = 'inline-block';
+                countSpan.textContent = count;
+            } else {
+                deleteBtn.style.display = 'none';
+            }
+            
+            // Update select all checkbox
+            updateSelectAllState();
+        }
+        
+        function updateSelectAllState() {
+            const selectAllCheckbox = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.app-checkbox');
+            const checkedCount = document.querySelectorAll('.app-checkbox:checked').length;
+            
+            if (checkboxes.length === 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            } else if (checkedCount === 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            } else if (checkedCount === checkboxes.length) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = true;
+            }
+        }
+        
+        function toggleSelectAll(checkbox) {
+            const checkboxes = document.querySelectorAll('.app-checkbox');
+            const pageAppIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            
+            checkboxes.forEach(cb => {
+                cb.checked = checkbox.checked;
+                const id = parseInt(cb.value);
+                if (checkbox.checked) {
+                    selectedApplicationIds.add(id);
+                } else {
+                    // Only remove if it's on current page (to preserve selections from other pages)
+                    // Actually, let's remove all - user wants to clear all selections
+                    selectedApplicationIds.delete(id);
+                }
+            });
+            
+            // If unchecking, clear all selections
+            if (!checkbox.checked) {
+                selectedApplicationIds.clear();
+            }
+            
+            updateSelectedCount();
+        }
+        
+        async function deleteSelected() {
+            const selectedIds = getSelectedApplicationIds();
+            
+            if (selectedIds.length === 0) {
+                alert('Please select at least one application to delete.');
+                return;
+            }
+            
+            const count = selectedIds.length;
+            const message = count === 1 
+                ? `Are you sure you want to delete this application? This cannot be undone.`
+                : `Are you sure you want to delete ${count} applications? This cannot be undone.`;
+            
+            if (!confirm(message)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/delete_application', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ids: selectedIds
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    // Remove from local data
+                    applications = applications.filter(a => !selectedIds.includes(a.id));
+                    filteredApplications = filteredApplications.filter(a => !selectedIds.includes(a.id));
+                    
+                    // Clear selections
+                    selectedIds.forEach(id => selectedApplicationIds.delete(id));
+                    
+                    // Reload data to refresh stats and charts
+                    loadData();
+                    
+                    alert(result.message || `Successfully deleted ${count} application(s)`);
+                } else {
+                    const error = await response.json();
+                    alert('Failed to delete applications: ' + (error.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error deleting applications:', error);
+                alert('Error deleting applications. Please try again.');
+            }
+        }
+        
+        function openAddJobModal() {
+            document.getElementById('addJobModal').style.display = 'block';
+            // Set today's date as default
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('addDateApplied').value = today;
+        }
+        
+        function closeAddJobModal() {
+            document.getElementById('addJobModal').style.display = 'none';
+            document.getElementById('addJobForm').reset();
+        }
+        
+        async function submitAddJob(event) {
+            event.preventDefault();
+            
+            const companyName = document.getElementById('addCompanyName').value.trim();
+            const jobTitle = document.getElementById('addJobTitle').value.trim();
+            const platform = document.getElementById('addPlatform').value.trim();
+            const status = document.getElementById('addStatus').value;
+            const dateApplied = document.getElementById('addDateApplied').value;
+            
+            if (!companyName) {
+                alert('Company name is required');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/add_application', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        company_name: companyName,
+                        job_title: jobTitle,
+                        platform: platform,
+                        status: status,
+                        date_applied: dateApplied
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    alert('Job application added successfully!');
+                    closeAddJobModal();
+                    // Reload data to show new application
+                    loadData();
+                } else {
+                    const error = await response.json();
+                    alert('Failed to add application: ' + (error.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error adding application:', error);
+                alert('Error adding application. Please try again.');
+            }
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('addJobModal');
+            if (event.target === modal) {
+                closeAddJobModal();
             }
         }
     </script>

@@ -219,6 +219,24 @@ class DatabaseManager:
             JobApplication.user_id == user_id
         ).first()
     
+    def delete_application(self, app_id, user_id):
+        """Delete a job application."""
+        try:
+            app = self.session.query(JobApplication).filter(
+                JobApplication.id == app_id,
+                JobApplication.user_id == user_id
+            ).first()
+            
+            if app:
+                self.session.delete(app)
+                self.session.commit()
+                return True
+            return False
+        except Exception as e:
+            self.session.rollback()
+            print(f"Error deleting application: {e}")
+            return False
+    
     def update_application_status(self, app_id, user_id, new_status):
         """Update the status of a job application."""
         try:
