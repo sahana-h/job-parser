@@ -20,10 +20,10 @@ class RecruitingEmailClassifier:
             # Prompt focuses on reasoning, short context, and classification only
             prompt = f"""
 You are an email classifier. Respond "yes" only if this email is clearly about one of the following:
-- A confirmation or receipt that someone has applied to a job or internship
-- An invitation or scheduling email for an interview
-- A request to complete an online assessment or test for a specific role
-- A rejection or update indicating the candidate is no longer being considered
+- A confirmation or receipt that the recipient of the email has applied to a job or internship
+- An invitation or scheduling email for an interview for the recipient of the email
+- A request to complete an online assessment or test for a specific role for the recipient of the email
+- A rejection or update indicating the recipient of the email is no longer being considered
 
 If the email is about anything else (such as newsletters, marketing, software projects, 
 system alerts, account notifications, or unrelated communication), respond "no".

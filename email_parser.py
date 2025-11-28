@@ -117,7 +117,7 @@ class EmailParser:
 You are a precise information extraction model.
 
 Your goal is to analyze the following email and determine if it is related to a job application.
-If it is not about a job application, return exactly this JSON:
+If it is not about a job application or not related to the recipient of the email, return exactly this JSON:
 {{
   "company_name": null,
   "job_title": null,
@@ -135,6 +135,7 @@ If it IS related to a job application, extract:
 
 Use only information explicitly in the email.
 Do not infer or guess values not clearly supported.
+For emails that involve updating the recipient of the email but not moving them forward/rejecting them in the application process, keep the status as applied/do not change it. 
 
 Return *only* valid JSON — no code fences, commentary, or explanations.
 
